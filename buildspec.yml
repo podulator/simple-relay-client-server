@@ -1,0 +1,84 @@
+version: 0.2
+
+phases:
+  install:
+    #If you use the Ubuntu standard image 2.0 or later, you must specify runtime-versions.
+    #If you specify runtime-versions and use an image other than Ubuntu standard image 2.0, the build fails.
+    runtime-versions:
+        dotnet: 3.1
+        docker: 19
+    commands:
+        - echo running stage - install
+        - echo running in directory - ${CODEBUILD_SRC_DIR}
+        - echo running in region - ${AWS_REGION}
+        - echo using account id - ${AWS_ACCOUNT_ID}
+        - echo using root ecr repo - ${IMAGE_REPO_NAME_ROOT}
+        - yum install tree mlocate jq -y
+        - tree .
+  pre_build:
+    commands:
+        - echo running stage - pre_build
+        - echo checking for aws cli
+        - aws --version
+        - REPO_ENDPOINT=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+        - echo repo resolved as - ${REPO_ENDPOINT}
+        - echo Logging in to Amazon ECR...
+        - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${REPO_ENDPOINT}
+        - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+        - echo latest commit - ${COMMIT_HASH}
+        - TAG_VERSION=${COMMIT_HASH:=latest}
+        - echo tag version is - ${TAG_VERSION}
+        - IMAGE_NAME_CLIENT=${IMAGE_REPO_NAME_ROOT}-client
+        - IMAGE_NAME_SERVER=${IMAGE_REPO_NAME_ROOT}-server
+  build:
+    commands:
+        - echo running stage - build
+        - dotnet build -c Release
+        - echo making docker images now...
+        - echo building client image as ${IMAGE_NAME_CLIENT}:${TAG_VERSION}
+        - cd Client && docker build -f ./Docker/Dockerfile -t ${IMAGE_NAME_CLIENT}:${TAG_VERSION} -t ${IMAGE_NAME_CLIENT}:latest . && cd ../
+        - echo tagging client to match repo - tag ${IMAGE_NAME_CLIENT}:${TAG_VERSION} ${REPO_ENDPOINT}/${IMAGE_NAME_CLIENT}
+        - docker tag ${IMAGE_NAME_CLIENT}:${TAG_VERSION} ${REPO_ENDPOINT}/${IMAGE_NAME_CLIENT}:${TAG_VERSION}
+        - docker tag ${IMAGE_NAME_CLIENT}:${TAG_VERSION} ${REPO_ENDPOINT}/${IMAGE_NAME_CLIENT}:latest
+
+        - echo building server image as ${IMAGE_NAME_SERVER}:${TAG_VERSION}
+        - cd Server && docker build -f ./Docker/Dockerfile -t ${IMAGE_NAME_SERVER}:${TAG_VERSION} -t ${IMAGE_NAME_SERVER}:latest . && cd ../
+        - echo tagging server  to match repo - tag ${IMAGE_NAME_SERVER}:${TAG_VERSION} ${REPO_ENDPOINT}/${IMAGE_NAME_SERVER}
+        - docker tag ${IMAGE_NAME_SERVER}:${TAG_VERSION} ${REPO_ENDPOINT}/${IMAGE_NAME_SERVER}:${TAG_VERSION}
+        - docker tag ${IMAGE_NAME_SERVER}:${TAG_VERSION} ${REPO_ENDPOINT}/${IMAGE_NAME_SERVER}:latest
+        - echo images built
+        - docker images
+  post_build:
+    commands:
+        - echo running stage - post_build
+        - echo pushing images
+        - echo Pushing the Docker images...
+        - docker push ${REPO_ENDPOINT}/${IMAGE_NAME_CLIENT}:${TAG_VERSION}
+        - docker push ${REPO_ENDPOINT}/${IMAGE_NAME_SERVER}:${TAG_VERSION}
+        - docker push ${REPO_ENDPOINT}/${IMAGE_NAME_CLIENT}:latest
+        - docker push ${REPO_ENDPOINT}/${IMAGE_NAME_SERVER}:latest
+        - echo bundling binaries
+        - zip -r client.zip ./Client/bin/Release ./Client/Docker
+        - zip -r server.zip ./Server/bin/Release ./Server/Docker
+        - ls -l
+      # - command
+      # - command
+#reports:
+  #report-name-or-arn:
+    #files:
+      # - location
+      # - location
+    #base-directory: location
+    #discard-paths: yes
+    #file-format: JunitXml | CucumberJson
+artifacts:
+  files:
+     - client.zip
+     - server.zip
+    # - location
+  #name: $(date +%Y-%m-%d)
+  discard-paths: yes
+  #base-directory: location
+#cache:
+  #paths:
+    # - paths
