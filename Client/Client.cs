@@ -109,21 +109,23 @@ namespace SpeedTester.Client {
 
             try {
                 this._running = true;
-                while (null == this._client || !this._client.Connected) {
+                bool success = false;
+                while (!success) {
                     try {
                         this._logger.Log ("Connecting to server...", false);
                         this._client = new TcpClient();
                         IAsyncResult result = this._client.BeginConnect(this._server, this._port, null, null);
-                        bool success = result.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(2));
 
-                        if (!success) {
+                        if (this._client.ConnectAsync(this._server, this._port).Wait(TimeSpan.FromSeconds(5))) {
+                            success = true;
+                            this._logger.Log ("Connected to server", true);
+                        } else {
                             this._logger.Log ("Can't reach server, sleeping for 5 seconds...", false);
                             Thread.Sleep (5000);
-                            if (!this._running) return;
                         }
-                        this._logger.Log ("Connected to server", false);
                     } catch (Exception ex) {
                         this._logger.Log(ex.Message, false);
+                        Thread.Sleep (5000);
                         if (!this._running) return;
                     }
                 }
@@ -160,10 +162,9 @@ namespace SpeedTester.Client {
                 this._port,
                 this._name,
                 this._filter, 
-                this._firehose,
+                this._firehose.Endpoint,
                 this._logger.Verbose);
         }
-
         public void myHandler (object sender, ConsoleCancelEventArgs args) {
             this._logger.Log ("Manual request to shut down the client", false);
             // set this so we gracefully clean up and exit
